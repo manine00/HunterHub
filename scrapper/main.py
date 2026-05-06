@@ -1,27 +1,38 @@
+import asyncio
 from wttj_scraper import WttjScraper
-from db_manager import DatabaseManager
+from db_manager import DatabaseManager 
 
-def run_pipeline():
+async def run_pipeline():
     print("Starting HunterHub Scraper Pipeline...")
-
-    # 1. Initialize and run the scraper
-    scraper = WttjScraper()
-    scraped_jobs = scraper.fetch_jobs(keyword="Data Engineer", location="Remote")
-    
-    # 2. Check if we actually got data
-    if not scraped_jobs:
-        print("No jobs found. Exiting.")
-        return
-
-    # 3. Connect to Database and save
     db = DatabaseManager()
+    
+    total_scraped = 0
+    new_inserted = 0
+
     try:
-        db.save_jobs(scraped_jobs)
-    except Exception as e:
-        print(f"Error saving to database: {e}")
+        scraper = WttjScraper(headless=False)
+        print("Initiating search stream...")
+        
+        async for job in scraper.fetch_jobs(keyword="Data Engineer", location="Remote"):
+            total_scraped += 1
+            
+            try:
+                is_new = db.save_job(job)
+                if is_new:
+                    new_inserted += 1
+                    print(f"  [+] NEW JOB SAVED: {job['title']} @ {job['company']}")
+                else:
+                    print(f"  [-] Skipped Duplicate: {job['title']} @ {job['company']}")
+                    
+            except Exception as db_err:
+                print(f"  [!] Database Error: {db_err}")
+
+        print("\n=== Pipeline Finished Successfully ===")
+        print(f"Total jobs scraped: {total_scraped}")
+        print(f"New jobs added to DB: {new_inserted}")
+
     finally:
-        # Always make sure we close the connection!
         db.close()
 
 if __name__ == "__main__":
-    run_pipeline()
+    asyncio.run(run_pipeline())
